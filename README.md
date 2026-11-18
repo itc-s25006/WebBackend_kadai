@@ -88,3 +88,4 @@ src/routes/              auth / boards / threads / posts
 
 アンカー (`>>2`) 解析、レスの通報、板ごとの設定、スレ dat 落ち (古いスレのアーカイブ)、テスト (`bun test`)。
 # WebBackend_kadai
+# WebBackend_kadai
