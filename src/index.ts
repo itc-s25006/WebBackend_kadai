@@ -1,15 +1,17 @@
 import express from "express";
-import { prisma } from "./db";
+import { userRouter } from "./routes/user";
 
 const app = express();
+
+// リクエストの JSON を読み取って req.body に入れる
+app.use(express.json());
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// DB に繋がるかの確認（起動時に 1 回だけ実行される）
-const userCount = await prisma.user.count();
-console.log(`User の件数: ${userCount}`);
+// /api/user で始まる URL は userRouter に任せる
+app.use("/api/user", userRouter);
 
 app.listen(3000, () => {
   console.log("Start server port:3000");
