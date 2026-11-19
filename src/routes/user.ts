@@ -1,3 +1,4 @@
+import { createSession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session";
 import { Router } from "express";
 import argon2 from "argon2";
 import { z } from "zod";
@@ -50,5 +51,49 @@ userRouter.post("/register", async (req, res) => {
     throw e;
   }
 
+  res.json({ message: "OK" });
+});
+
+// ログインの入力ルール
+const loginSchema = z.object({
+  email: z.string().min(1),
+  password: z.string().min(1),
+});
+
+// 失敗の理由は「どちらが違うか」を教えない（メールの存在を知られないため）
+const loginFailed = {
+  errors: [{ name: "auth", reason: "ログインに失敗しました" }],
+};
+
+// POST /api/user/login
+userRouter.post("/login", async (req, res) => {
+  const result = loginSchema.safeParse(req.body ?? {});
+  if (!result.success) {
+    return res.status(401).json(loginFailed);
+  }
+  const email = result.data.email.toLowerCase();
+
+  // 1. ユーザーを探す（削除済みのユーザーは除く）
+  const user = await prisma.user.findFirst({
+    where: { email, deletedAt: null },
+  });
+  if (!user) {
+    return res.status(401).json(loginFailed);
+  }
+
+  // 2. パスワードを照合する
+  const ok = await argon2.verify(user.password, result.data.password);
+  if (!ok) {
+    return res.status(401).json(loginFailed);
+  }
+
+  // 3. セッションを作って、Cookie で渡す
+  const sessionId = await createSession(user.id);
+  res.cookie(SESSION_COOKIE, sessionId, {
+    httpOnly: true, // JavaScript から読めなくする
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: SESSION_TTL_SECONDS * 1000,
+  });
   res.json({ message: "OK" });
 });
