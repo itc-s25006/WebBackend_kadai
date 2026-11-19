@@ -1,13 +1,16 @@
 import express from "express";
-const app = express()
+import { prisma } from "./db";
 
-app.get('/api/health',(req,res) => {
-  res.status(200).json({"status":"ok"})
-})
+const app = express();
 
-app.listen(3000,() => {
-  console.log('Start server port:3000')
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 
-}
-)
+// DB に繋がるかの確認（起動時に 1 回だけ実行される）
+const userCount = await prisma.user.count();
+console.log(`User の件数: ${userCount}`);
 
+app.listen(3000, () => {
+  console.log("Start server port:3000");
+});
