@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import { userRouter } from "./routes/user";
+import { topicRouter } from "./routes/topic";
 
 const app = express();
 
@@ -15,6 +16,7 @@ app.get("/api/health", (req, res) => {
 
 // /api/user で始まる URL は userRouter に任せる
 app.use("/api/user", userRouter);
+app.use("/api/topic", topicRouter);
 
 app.listen(3000, () => {
   console.log("Start server port:3000");

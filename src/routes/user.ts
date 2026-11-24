@@ -5,6 +5,7 @@ import argon2 from "argon2";
 import { z } from "zod";
 import { prisma } from "../db";
 import { Prisma } from "../../generated/prisma/client";
+import { zodErrors } from "../lib/validation";   // ← import に追加
 
 export const userRouter = Router();
 
@@ -116,11 +117,8 @@ userRouter.put("/change", requireLogin, async (req, res) => {
 
   const result = changeSchema.safeParse(req.body ?? {});
   if (!result.success) {
-    const errors = result.error.issues.map((issue) => ({
-      name: String(issue.path[0]),
-      reason: issue.message,
-    }));
-    return res.status(400).json({ errors });
+    return res.status(400).json({ errors: zodErrors(result.error) });
+
   }
   const { name, password } = result.data;
 
