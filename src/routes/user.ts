@@ -1,3 +1,4 @@
+import { requireLogin } from "../middleware/requireLogin";
 import { createSession, SESSION_COOKIE, SESSION_TTL_SECONDS } from "../lib/session";
 import { Router } from "express";
 import argon2 from "argon2";
@@ -96,4 +97,48 @@ userRouter.post("/login", async (req, res) => {
     maxAge: SESSION_TTL_SECONDS * 1000,
   });
   res.json({ message: "OK" });
+});
+// 名前・パスワード変更の入力ルール（どちらも任意。送られたものだけ変える）
+const changeSchema = z.object({
+  name: z
+    .string({ error: "名前は文字列で入力してください" })
+    .max(128, { error: "名前が長すぎます" })
+    .optional(),
+  password: z
+    .string({ error: "パスワードは文字列で入力してください" })
+    .min(8, { error: "パスワードが短すぎます" })
+    .optional(),
+});
+
+// PUT /api/user/change
+userRouter.put("/change", requireLogin, async (req, res) => {
+  const userId = res.locals.userId as string;
+
+  const result = changeSchema.safeParse(req.body ?? {});
+  if (!result.success) {
+    const errors = result.error.issues.map((issue) => ({
+      name: String(issue.path[0]),
+      reason: issue.message,
+    }));
+    return res.status(400).json({ errors });
+  }
+  const { name, password } = result.data;
+
+  // 何も送られていなければ、変えるものがないので 400
+  if (name === undefined && password === undefined) {
+    return res.status(400).json({
+      errors: [{ name: "body", reason: "変更する項目を指定してください" }],
+    });
+  }
+
+  // undefined の項目は Prisma が無視するので、送られたものだけ更新される
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name,
+      password: password === undefined ? undefined : await argon2.hash(password),
+    },
+  });
+
+  res.json({ message: "Changed!" });
 });
