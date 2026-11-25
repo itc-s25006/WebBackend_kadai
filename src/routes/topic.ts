@@ -4,7 +4,8 @@ import { prisma } from "../db";
 import { zodErrors } from "../lib/validation";
 import { requireLogin } from "../middleware/requireLogin";
 import { topicRouter } from "./routes/topic";   // ← import に追
-
+import { Prisma } from "../../generated/prisma/client";
+import { notFoundBody } from "../lib/errors";
 
 export const topicRouter = Router();
 
@@ -75,4 +76,97 @@ topicRouter.post("/create", async (req, res) => {
   });
 
   res.status(201).json(topic);
+});
+
+// ---- ここから下は、トピックの中のメッセージ関連 ----
+// 注意: "/create" のルートは必ずこれらより上に書くこと。
+// 下の "/:topic_id" は "create" という文字列も topic_id として受け取ってしまうため。
+
+const MESSAGES_PER_PAGE = 10;
+
+// topic_id が UUID の形でなければ、DB に聞くまでもなく「存在しない」
+const topicIdSchema = z.uuid();
+
+// GET /api/topic/:topic_id  メッセージ一覧（古い順、1 ページ 10 件）
+topicRouter.get("/:topic_id", async (req, res) => {
+  const idResult = topicIdSchema.safeParse(req.params.topic_id);
+  if (!idResult.success) {
+    return res.status(404).json(notFoundBody);
+  }
+  const page = pageSchema.parse(req.query.page);
+
+  const topic = await prisma.topic.findFirst({
+    where: { id: idResult.data, deletedAt: null },
+    include: {
+      posts: {
+        where: { deletedAt: null },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        skip: (page - 1) * MESSAGES_PER_PAGE,
+        take: MESSAGES_PER_PAGE,
+        include: { contributor: { select: { id: true, name: true, email: true } } },
+      },
+    },
+  });
+  if (!topic) {
+    return res.status(404).json(notFoundBody);
+  }
+
+  res.json({
+    id: topic.id,
+    title: topic.title,
+    last_update: topic.updatedAt,
+    posts: topic.posts.map((p) => ({
+      id: p.id,
+      contributor: {
+        id: p.contributor.id,
+        name: p.contributor.name ?? p.contributor.email,
+      },
+      message: p.message,
+      created_at: p.createdAt,
+      updated_at: p.updatedAt,
+    })),
+  });
+});
+
+// メッセージ投稿の入力ルール
+const postSchema = z.object({
+  message: z
+    .string({ error: "メッセージは必須項目です" })
+    .trim()
+    .min(1, { error: "メッセージは必須項目です" })
+    .max(512, { error: "メッセージは512文字以内で入力してください" }),
+});
+
+// POST /api/topic/:topic_id  メッセージ投稿（トピックを一覧の上に上げる）
+topicRouter.post("/:topic_id", async (req, res) => {
+  const userId = res.locals.userId as string;
+
+  const idResult = topicIdSchema.safeParse(req.params.topic_id);
+  if (!idResult.success) {
+    return res.status(404).json(notFoundBody);
+  }
+
+  const result = postSchema.safeParse(req.body ?? {});
+  if (!result.success) {
+    return res.status(400).json({ errors: zodErrors(result.error) });
+  }
+
+  try {
+    // 投稿の追加と、トピックの更新日時の更新を 1 回の操作で行う
+    await prisma.topic.update({
+      where: { id: idResult.data, deletedAt: null },
+      data: {
+        updatedAt: new Date(),
+        posts: { create: { message: result.data.message, contributorId: userId } },
+      },
+    });
+  } catch (e) {
+    // 対象のトピックが無い（または削除済み）と P2025 になる
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+      return res.status(404).json(notFoundBody);
+    }
+    throw e;
+  }
+
+  res.json({ message: "OK" });
 });
