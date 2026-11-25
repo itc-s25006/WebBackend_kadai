@@ -130,7 +130,7 @@ topicRouter.get("/:topic_id", async (req, res) => {
 });
 
 // メッセージ投稿の入力ルール
-const postSchema = z.object({
+export const postSchema = z.object({
   message: z
     .string({ error: "メッセージは必須項目です" })
     .trim()
