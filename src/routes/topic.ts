@@ -6,6 +6,7 @@ import { requireLogin } from "../middleware/requireLogin";
 import { topicRouter } from "./routes/topic";   // ← import に追
 import { Prisma } from "../../generated/prisma/client";
 import { notFoundBody } from "../lib/errors";
+import { forbiddenBody, notFoundBody } from "../lib/errors";
 
 export const topicRouter = Router();
 
@@ -169,4 +170,70 @@ topicRouter.post("/:topic_id", async (req, res) => {
   }
 
   res.json({ message: "OK" });
+});
+
+// PUT /api/topic/:topic_id  タイトル変更（作成者だけ）
+topicRouter.put("/:topic_id", async (req, res) => {
+  const userId = res.locals.userId as string;
+
+  const idResult = topicIdSchema.safeParse(req.params.topic_id);
+  if (!idResult.success) {
+    return res.status(404).json(notFoundBody);
+  }
+
+  // 作成のときのタイトルのルールを、そのまま使い回す
+  const result = createSchema.pick({ title: true }).safeParse(req.body ?? {});
+  if (!result.success) {
+    return res.status(400).json({ errors: zodErrors(result.error) });
+  }
+
+  // 1. 存在するか（無い・削除済みなら 404）
+  const topic = await prisma.topic.findFirst({
+    where: { id: idResult.data, deletedAt: null },
+    select: { authorId: true },
+  });
+  if (!topic) {
+    return res.status(404).json(notFoundBody);
+  }
+
+  // 2. 作成者本人か（違えば 403）
+  if (topic.authorId !== userId) {
+    return res.status(403).json(forbiddenBody);
+  }
+
+  await prisma.topic.update({
+    where: { id: idResult.data },
+    data: { title: result.data.title },
+  });
+
+  res.json({ message: "OK" });
+});
+
+// DELETE /api/topic/:topic_id  トピック削除（作成者だけ。論理削除）
+topicRouter.delete("/:topic_id", async (req, res) => {
+  const userId = res.locals.userId as string;
+
+  const idResult = topicIdSchema.safeParse(req.params.topic_id);
+  if (!idResult.success) {
+    return res.status(404).json(notFoundBody);
+  }
+
+  const topic = await prisma.topic.findFirst({
+    where: { id: idResult.data, deletedAt: null },
+    select: { authorId: true },
+  });
+  if (!topic) {
+    return res.status(404).json(notFoundBody);
+  }
+  if (topic.authorId !== userId) {
+    return res.status(403).json(forbiddenBody);
+  }
+
+  // 行は消さずに、削除した日時を入れるだけ（論理削除）
+  await prisma.topic.update({
+    where: { id: idResult.data },
+    data: { deletedAt: new Date() },
+  });
+
+  res.json({ message: "deleted" });
 });
